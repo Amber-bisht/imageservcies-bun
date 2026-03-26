@@ -1,8 +1,8 @@
-# 🚀 Bun Image Server
+# Bun Image Server
 
 A high-performance, lightweight image hosting and processing server built with **Bun** and **Sharp**. It automatically converts images to optimized **WebP** formats and manages uploads via a simple API.
 
-## ✨ Features
+## Features
 - **Fast Uploads**: Handles multipart/form-data with ease.
 - **Auto-Optimization**: Automatically converts images to `.webp` for minimal storage and fast loading.
 - **Auto-Resize**: Resizes large images to a maximum width of 1920px while maintaining aspect ratio.
@@ -13,7 +13,7 @@ A high-performance, lightweight image hosting and processing server built with *
 
 ---
 
-## 🛠️ API Documentation
+## API Documentation
 
 ### 1. Health Check
 Check if the server is running.
@@ -47,7 +47,7 @@ Check if the server is running.
 
 ---
 
-## 🚀 Deployment (GitHub Actions)
+## Deployment (GitHub Actions)
 
 This project is configured to auto-deploy to your VPS on every push to the `main` branch.
 
@@ -57,11 +57,11 @@ This project is configured to auto-deploy to your VPS on every push to the `main
 3.  **`VPS_SSH_KEY`**: Your private SSH key (RSA/ED25519).
 4.  **`VPS_SSH_PASSWORD`**: (Fallback) Your VPS password.
 5.  **`IMAGE_SERVER_SECRET`**: Any random string used as your API Key.
-6.  **`BASE_URL`**: Your public server URL (e.g., `http://88.222.215.89:4000`).
+6.  **`BASE_URL`**: Your public server URL.
 
 ---
 
-## 🐳 Manual Run (Docker Compose)
+## Manual Run (Docker Compose)
 If you want to run it locally or manually on your server:
 
 1. Create a `.env` file:
@@ -76,7 +76,7 @@ If you want to run it locally or manually on your server:
 
 ---
 
-## 📦 Tech Stack
+## Tech Stack
 - **Runtime**: [Bun](https://bun.sh)
 - **Image Processing**: [Sharp](https://sharp.pixelplumbing.com/)
 - **Deployment**: Docker, GitHub Actions, Appleboy SSH/SCP
