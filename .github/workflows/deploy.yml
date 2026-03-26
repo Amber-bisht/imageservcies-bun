@@ -51,6 +51,7 @@ jobs:
           host: ${{ secrets.VPS_SSH_HOST }}
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_SSH_PASSWORD }}
           source: "docker-compose.yml"
           target: "~/image-server"
 
@@ -60,6 +61,7 @@ jobs:
           host: ${{ secrets.VPS_SSH_HOST }}
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_SSH_PASSWORD }}
           envs: IMAGE_SERVER_SECRET,BASE_URL,GITHUB_REPOSITORY
           script: |
             cd ~/image-server
