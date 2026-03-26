@@ -1,7 +1,7 @@
 services:
   image-server:
     build: .
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/image-server:latest
+    image: ghcr.io/amber-bisht/imageservcies-bun:latest
     container_name: image-server
     restart: always
     ports:

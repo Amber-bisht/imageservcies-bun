@@ -62,12 +62,12 @@ jobs:
           username: ${{ secrets.VPS_SSH_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           password: ${{ secrets.VPS_SSH_PASSWORD }}
-          envs: IMAGE_SERVER_SECRET,BASE_URL,GITHUB_REPOSITORY
+          envs: IMAGE_SERVER_SECRET,BASE_URL
           script: |
             cd ~/image-server
             echo "IMAGE_SERVER_SECRET=${{ secrets.IMAGE_SERVER_SECRET }}" > .env
             echo "BASE_URL=${{ secrets.BASE_URL }}" >> .env
-            echo "GITHUB_REPOSITORY_OWNER=${{ github.repository_owner }}" >> .env
+            
             # Login to GHCR on VPS
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker compose pull
