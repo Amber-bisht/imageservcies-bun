@@ -33,7 +33,7 @@ Bun.serve({
         }
 
         // 2. Serve Static Images
-        if (url.pathname.startsWith('/images/')) {
+        if (url.pathname.startsWith('/images/') && req.method === 'GET') {
             const filename = url.pathname.replace('/images/', '');
             const filepath = path.join(STATIC_DIR, filename);
             const file = Bun.file(filepath);
