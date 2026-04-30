@@ -23,13 +23,25 @@ Bun.serve({
 
         // Security Helper
         const isAuthorized = () => {
-            const apiKey = req.headers.get('x-api-key');
+            const apiKey = req.headers.get('x-api-key') || url.searchParams.get('key');
             return apiKey === SECRET_KEY;
         };
 
         // 1. Health Check
         if (url.pathname === '/health') {
             return Response.json({ status: 'ok', storage: STATIC_DIR });
+        }
+
+        // 2. Admin Dashboard
+        if (url.pathname === '/admin' && req.method === 'GET') {
+            if (!isAuthorized()) {
+                return new Response('<h1>Unauthorized</h1><p>Please provide a valid ?key=YOUR_SECRET in the URL.</p>', { 
+                    status: 401, 
+                    headers: { 'Content-Type': 'text/html' } 
+                });
+            }
+            const html = fs.readFileSync(path.join(import.meta.dir, 'admin.html'), 'utf8');
+            return new Response(html, { headers: { 'Content-Type': 'text/html' } });
         }
 
         // 2. Serve Static Images
@@ -58,26 +70,51 @@ Bun.serve({
                     return Response.json({ error: 'No file uploaded' }, { status: 400 });
                 }
 
-                // Generate unique filename
-                const filename = `img-${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
-                const filepath = path.join(STATIC_DIR, filename);
+                // Generate unique base filename
+                const timestamp = Date.now();
+                const random = Math.round(Math.random() * 1e9);
+                const baseFilename = `img-${timestamp}-${random}`;
+                const webpFilename = `${baseFilename}.webp`;
+                const pngFilename = `${baseFilename}.png`;
+
+                const webpPath = path.join(STATIC_DIR, webpFilename);
+                const pngPath = path.join(STATIC_DIR, pngFilename);
 
                 // Process image with Sharp
                 const arrayBuffer = await file.arrayBuffer();
-                await sharp(Buffer.from(arrayBuffer))
+                const imageBuffer = Buffer.from(arrayBuffer);
+
+                // Generate WebP
+                await sharp(imageBuffer)
                     .resize({ width: 1920, withoutEnlargement: true })
                     .toFormat('webp', { quality: 80 })
-                    .toFile(filepath);
+                    .toFile(webpPath);
 
-                console.log(`Successfully uploaded: ${filename}`);
+                // Generate PNG
+                await sharp(imageBuffer)
+                    .resize({ width: 1920, withoutEnlargement: true })
+                    .toFormat('png')
+                    .toFile(pngPath);
+
+                console.log(`Successfully uploaded: ${webpFilename} and ${pngFilename}`);
 
                 return Response.json({
                     success: true,
-                    url: `${BASE_URL}/images/${filename}`,
+                    url: `${BASE_URL}/images/${webpFilename}`, // Default URL (WebP)
+                    webp_url: `${BASE_URL}/images/${webpFilename}`,
+                    png_url: `${BASE_URL}/images/${pngFilename}`,
                     details: {
-                        filename,
-                        mimetype: 'image/webp',
-                        size: fs.statSync(filepath).size
+                        baseFilename,
+                        webp: {
+                            filename: webpFilename,
+                            mimetype: 'image/webp',
+                            size: fs.statSync(webpPath).size
+                        },
+                        png: {
+                            filename: pngFilename,
+                            mimetype: 'image/png',
+                            size: fs.statSync(pngPath).size
+                        }
                     }
                 });
             } catch (error) {

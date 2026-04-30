@@ -4,7 +4,7 @@ A high-performance, lightweight image hosting and processing server built with *
 
 ## Features
 - **Fast Uploads**: Handles multipart/form-data with ease.
-- **Auto-Optimization**: Automatically converts images to `.webp` for minimal storage and fast loading.
+- **Auto-Optimization**: Automatically converts images to **WebP** and **PNG** formats. Use WebP for performance and PNG for social media meta tags.
 - **Auto-Resize**: Resizes large images to a maximum width of 1920px while maintaining aspect ratio.
 - **Secure**: Protected by API key authentication.
 - **Management API**: List, view, and delete images remotely.
@@ -29,7 +29,13 @@ Check if the server is running.
   {
     "success": true,
     "url": "http://your-server.com/images/img-123456.webp",
-    "details": { "filename": "...", "mimetype": "image/webp", "size": 1234 }
+    "webp_url": "http://your-server.com/images/img-123456.webp",
+    "png_url": "http://your-server.com/images/img-123456.png",
+    "details": {
+      "baseFilename": "img-123456",
+      "webp": { "filename": "...", "mimetype": "image/webp", "size": 1234 },
+      "png": { "filename": "...", "mimetype": "image/png", "size": 5678 }
+    }
   }
   ```
 
@@ -44,6 +50,15 @@ Check if the server is running.
 ### 5. Delete Image
 - **Endpoint**: `DELETE /images/:filename`
 - **Auth**: Header `x-api-key: YOUR_SECRET_KEY`
+
+### 6. Admin Dashboard (GUI)
+A web interface to view, manage, and copy URLs for all images.
+- **Endpoint**: `GET /admin?key=YOUR_SECRET_KEY`
+- **Auth**: Query parameter `key` or Header `x-api-key`
+- **Features**:
+  - View both WebP and PNG versions.
+  - Copy URLs to clipboard.
+  - Delete image pairs easily.
 
 ---
 

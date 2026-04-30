@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Server Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --glass: rgba(30, 41, 59, 0.7);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        h1 {
+            font-weight: 600;
+            font-size: 1.8rem;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .refresh-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .refresh-btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s;
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .img-container {
+            aspect-ratio: 16 / 9;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .img-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
+
+        .card:hover .img-container img {
+            transform: scale(1.05);
+        }
+
+        .card-content {
+            padding: 1.2rem;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .copy-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-small {
+            flex: 1;
+            padding: 0.5rem;
+            border-radius: 0.4rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+        }
+
+        .btn-small:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: var(--primary);
+        }
+
+        .btn-delete {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .btn-delete:hover {
+            background: var(--danger);
+            color: white;
+            border-color: var(--danger);
+        }
+
+        .badge {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: var(--glass);
+            backdrop-filter: blur(4px);
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.3rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            z-index: 10;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--primary);
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+            transform: translateY(200%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 5rem 0;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Image Assets Dashboard</h1>
+            <button class="refresh-btn" onclick="fetchImages()">
+                <div class="spinner" id="refresh-spinner"></div>
+                Refresh
+            </button>
+        </header>
+
+        <div id="image-grid" class="grid">
+            <!-- Images will be loaded here -->
+        </div>
+    </div>
+
+    <div id="toast" class="toast">URL Copied!</div>
+
+    <script>
+        const API_KEY = new URLSearchParams(window.location.search).get('key');
+        
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        async function copyToClipboard(text) {
+            await navigator.clipboard.writeText(text);
+            showToast('URL Copied!');
+        }
+
+        async function deleteImage(filename) {
+            if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+
+            try {
+                const res = await fetch(`/images/${filename}`, {
+                    method: 'DELETE',
+                    headers: { 'x-api-key': API_KEY }
+                });
+                if (res.ok) {
+                    showToast('Image deleted');
+                    fetchImages();
+                } else {
+                    alert('Failed to delete image');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Error deleting image');
+            }
+        }
+
+        async function fetchImages() {
+            const grid = document.getElementById('image-grid');
+            const spinner = document.getElementById('refresh-spinner');
+            
+            spinner.style.display = 'block';
+            
+            try {
+                const res = await fetch('/list', {
+                    headers: { 'x-api-key': API_KEY }
+                });
+                const data = await res.json();
+                
+                if (!Array.isArray(data)) {
+                    grid.innerHTML = '<div class="empty-state">Error loading images. Check your key.</div>';
+                    return;
+                }
+
+                // Group images by base name (img-timestamp-random)
+                const groups = {};
+                data.forEach(img => {
+                    const base = img.filename.replace(/\.(webp|png)$/, '');
+                    if (!groups[base]) groups[base] = { base, webp: null, png: null, mtime: img.mtime };
+                    if (img.filename.endsWith('.webp')) groups[base].webp = img;
+                    if (img.filename.endsWith('.png')) groups[base].png = img;
+                    // Keep the latest mtime
+                    if (new Date(img.mtime) > new Date(groups[base].mtime)) groups[base].mtime = img.mtime;
+                });
+
+                const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+
+                if (sortedGroups.length === 0) {
+                    grid.innerHTML = '<div class="empty-state">No images found. Start by uploading some!</div>';
+                } else {
+                    grid.innerHTML = sortedGroups.map(group => `
+                        <div class="card">
+                            <div class="badge">WebP + PNG</div>
+                            <div class="img-container">
+                                <img src="${group.webp?.url || group.png?.url}" alt="${group.base}" loading="lazy">
+                            </div>
+                            <div class="card-content">
+                                <div class="card-title" title="${group.base}">${group.base}</div>
+                                <div class="actions">
+                                    <div class="copy-group">
+                                        <button class="btn-small" onclick="copyToClipboard('${group.webp?.url}')">
+                                            <span>🔗</span> WebP
+                                        </button>
+                                        <button class="btn-small" onclick="copyToClipboard('${group.png?.url}')">
+                                            <span>🔗</span> PNG
+                                        </button>
+                                    </div>
+                                    <button class="btn-small btn-delete" onclick="deletePair('${group.webp?.filename}', '${group.png?.filename}')">
+                                        <span>🗑️</span> Delete Both
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error(err);
+                grid.innerHTML = '<div class="empty-state">Failed to connect to server.</div>';
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function deletePair(webp, png) {
+            if (!confirm('Delete both versions of this image?')) return;
+            
+            const results = await Promise.all([
+                webp ? fetch(`/images/${webp}`, { method: 'DELETE', headers: { 'x-api-key': API_KEY } }) : Promise.resolve({ ok: true }),
+                png ? fetch(`/images/${png}`, { method: 'DELETE', headers: { 'x-api-key': API_KEY } }) : Promise.resolve({ ok: true })
+            ]);
+
+            if (results.every(r => r.ok)) {
+                showToast('Images deleted');
+                fetchImages();
+            } else {
+                alert('One or more deletions failed.');
+            }
+        }
+
+        fetchImages();
+    </script>
+</body>
+</html>
