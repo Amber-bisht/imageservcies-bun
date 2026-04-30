@@ -14,12 +14,18 @@ if (!fs.existsSync(STATIC_DIR)) {
 }
 
 console.log(`🚀 Starting Bun Image Server...`);
-console.log(`📁 Images stored in: ${STATIC_DIR}`);
+console.log(`📡 Port: ${PORT}`);
+console.log(`🌐 Base URL: ${BASE_URL}`);
+console.log(`📁 Storage: ${STATIC_DIR}`);
+console.log(`🔐 API Key Set: ${SECRET_KEY ? '✅ Yes' : '❌ No (Check IMAGE_SERVER_SECRET env)'}`);
 
 Bun.serve({
     port: PORT,
     async fetch(req) {
         const url = new URL(req.url);
+        
+        // Detailed Request Logging
+        console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
 
         // Security Helper
         const isAuthorized = () => {
@@ -27,9 +33,33 @@ Bun.serve({
             return apiKey === SECRET_KEY;
         };
 
-        // 1. Health Check
+        // 1. Enhanced Health Check
         if (url.pathname === '/health') {
-            return Response.json({ status: 'ok', storage: STATIC_DIR });
+            const storageExists = fs.existsSync(STATIC_DIR);
+            let storageWritable = false;
+            try {
+                if (storageExists) {
+                    const testFile = path.join(STATIC_DIR, '.health-check');
+                    fs.writeFileSync(testFile, 'ok');
+                    fs.unlinkSync(testFile);
+                    storageWritable = true;
+                }
+            } catch (e) {}
+
+            return Response.json({
+                status: storageExists && storageWritable && SECRET_KEY ? 'ok' : 'error',
+                timestamp: new Date().toISOString(),
+                config: {
+                    port: PORT,
+                    baseUrl: BASE_URL,
+                    apiKeyConfigured: !!SECRET_KEY
+                },
+                storage: {
+                    path: STATIC_DIR,
+                    exists: storageExists,
+                    writable: storageWritable
+                }
+            }, { status: (storageExists && storageWritable && SECRET_KEY) ? 200 : 500 });
         }
 
         // 2. Admin Dashboard
