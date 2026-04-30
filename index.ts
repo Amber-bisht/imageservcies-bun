@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 
 // Load environment variables manually if needed, but Bun does this automatically!
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.PORT || 4000;
 const SECRET_KEY = process.env.IMAGE_SERVER_SECRET;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const STATIC_DIR = path.join(import.meta.dir, 'public/images');

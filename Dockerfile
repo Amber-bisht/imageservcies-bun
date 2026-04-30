@@ -18,11 +18,11 @@ COPY . .
 RUN mkdir -p public/images
 
 # Expose the port the server runs on
-EXPOSE 4001
+EXPOSE 4000
 
 # Set health check
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:4001/health || exit 1
+  CMD curl -f http://localhost:4000/health || exit 1
 
 # Start the server
 CMD ["bun", "run", "start"]
