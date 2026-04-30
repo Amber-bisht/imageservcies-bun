@@ -33,7 +33,7 @@ Bun.serve({
         }
 
         // 2. Admin Dashboard
-        if (url.pathname === '/admin' && req.method === 'GET') {
+        if ((url.pathname === '/admin' || url.pathname === '/admin.html') && req.method === 'GET') {
             if (!isAuthorized()) {
                 return new Response('<h1>Unauthorized</h1><p>Please provide a valid ?key=YOUR_SECRET in the URL.</p>', { 
                     status: 401, 
