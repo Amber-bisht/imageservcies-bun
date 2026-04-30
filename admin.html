@@ -74,6 +74,55 @@
             transform: translateY(-1px);
         }
 
+        /* Upload Section */
+        .upload-section {
+            background: var(--card-bg);
+            border: 2px dashed rgba(99, 102, 241, 0.3);
+            border-radius: 1rem;
+            padding: 2.5rem;
+            text-align: center;
+            margin-bottom: 3rem;
+            transition: all 0.3s;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .upload-section:hover, .upload-section.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .upload-text h3 {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-text p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .upload-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s;
+            border-radius: 0 0 1rem 1rem;
+        }
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -239,6 +288,16 @@
             </button>
         </header>
 
+        <div class="upload-section" id="drop-zone" onclick="document.getElementById('file-input').click()">
+            <input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)">
+            <span class="upload-icon">☁️</span>
+            <div class="upload-text">
+                <h3>Click or Drag & Drop to Upload</h3>
+                <p>Images will be automatically converted to WebP and PNG</p>
+            </div>
+            <div class="upload-progress" id="upload-progress"></div>
+        </div>
+
         <div id="image-grid" class="grid">
             <!-- Images will be loaded here -->
         </div>
@@ -259,6 +318,58 @@
         async function copyToClipboard(text) {
             await navigator.clipboard.writeText(text);
             showToast('URL Copied!');
+        }
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) uploadFile(file);
+        }
+
+        // Drag and drop handlers
+        const dropZone = document.getElementById('drop-zone');
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) uploadFile(file);
+        });
+
+        async function uploadFile(file) {
+            const progressBar = document.getElementById('upload-progress');
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                progressBar.style.width = '30%';
+                const res = await fetch('/upload', {
+                    method: 'POST',
+                    headers: { 'x-api-key': API_KEY },
+                    body: formData
+                });
+                
+                progressBar.style.width = '100%';
+                const data = await res.json();
+
+                if (data.success) {
+                    showToast('Upload Successful!');
+                    setTimeout(() => {
+                        progressBar.style.width = '0%';
+                        fetchImages();
+                    }, 1000);
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                    progressBar.style.width = '0%';
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Error uploading file');
+                progressBar.style.width = '0%';
+            }
         }
 
         async function deleteImage(filename) {
