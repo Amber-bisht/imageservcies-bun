@@ -1,40 +1,127 @@
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
-// Load environment variables manually if needed, but Bun does this automatically!
-const PORT = process.env.PORT || 4000;
-const SECRET_KEY = process.env.IMAGE_SERVER_SECRET;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+// Configuration
+const PORT = Number(process.env.PORT) || 4000;
+const SECRET_KEY = process.env.IMAGE_SERVER_SECRET || '';
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const STATIC_DIR = path.join(import.meta.dir, 'public/images');
+const MAX_IMAGE_WIDTH = 1920;
+const DEFAULT_EXPIRATION_SECONDS = 300; // 5 minutes
+const DEFAULT_MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
+// Supported target output formats
+const ALLOWED_FORMATS = ['webp', 'png'] as const;
+type AllowedFormat = typeof ALLOWED_FORMATS[number];
 
 // Ensure upload directory exists
 if (!fs.existsSync(STATIC_DIR)) {
     fs.mkdirSync(STATIC_DIR, { recursive: true });
 }
 
-console.log(`🚀 Starting Bun Image Server...`);
+// Track consumed presigned signatures to prevent replay attacks (with TTL cleanup)
+const usedSignatures = new Map<string, number>();
+
+setInterval(() => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [sig, expiry] of usedSignatures.entries()) {
+        if (now > expiry) {
+            usedSignatures.delete(sig);
+        }
+    }
+}, 60 * 1000);
+
+// Helper: HMAC Signature Generator
+function generateSignature(params: {
+    method: string;
+    path: string;
+    fileKey: string;
+    format: string;
+    expires: number;
+    maxSize: number;
+}): string {
+    const canonicalString = [
+        params.method.toUpperCase(),
+        params.path,
+        params.fileKey,
+        params.format,
+        params.expires.toString(),
+        params.maxSize.toString()
+    ].join('\n');
+
+    return crypto
+        .createHmac('sha256', SECRET_KEY)
+        .update(canonicalString)
+        .digest('hex');
+}
+
+// Helper: Safe Signature Verification
+function verifySignature(expectedSig: string, providedSig: string): boolean {
+    if (!expectedSig || !providedSig || expectedSig.length !== providedSig.length) {
+        return false;
+    }
+    try {
+        return crypto.timingSafeEqual(
+            Buffer.from(expectedSig, 'hex'),
+            Buffer.from(providedSig, 'hex')
+        );
+    } catch {
+        return false;
+    }
+}
+
+// Helper: CORS Headers
+function corsHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+    return {
+        'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization',
+        'Access-Control-Max-Age': '86400',
+        ...extraHeaders,
+    };
+}
+
+// Helper: JSON Response with CORS
+function jsonResponse(data: unknown, status = 200, headers: Record<string, string> = {}) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: corsHeaders({
+            'Content-Type': 'application/json',
+            ...headers,
+        }),
+    });
+}
+
+console.log(`🚀 Starting Bun Image Service (S3-Compatible Direct Upload)...`);
 console.log(`📡 Port: ${PORT}`);
 console.log(`🌐 Base URL: ${BASE_URL}`);
 console.log(`📁 Storage: ${STATIC_DIR}`);
-console.log(`🔐 API Key Set: ${SECRET_KEY ? '✅ Yes' : '❌ No (Check IMAGE_SERVER_SECRET env)'}`);
+console.log(`🔐 Secret Configured: ${SECRET_KEY ? '✅ Yes' : '❌ No (Set IMAGE_SERVER_SECRET)'}`);
 
 Bun.serve({
     port: PORT,
     async fetch(req) {
         const url = new URL(req.url);
-        
-        // Detailed Request Logging
-        console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
 
-        // Security Helper
+        // 1. Handle CORS Preflight
+        if (req.method === 'OPTIONS') {
+            return new Response(null, {
+                status: 204,
+                headers: corsHeaders(),
+            });
+        }
+
+        // Auth Helper for Master API Key
         const isAuthorized = () => {
             const apiKey = req.headers.get('x-api-key') || url.searchParams.get('key');
-            return apiKey === SECRET_KEY;
+            return !!SECRET_KEY && apiKey === SECRET_KEY;
         };
 
-        // 1. Enhanced Health Check
-        if (url.pathname === '/health') {
+        // 2. Health Check (Public)
+        if (url.pathname === '/health' && req.method === 'GET') {
             const storageExists = fs.existsSync(STATIC_DIR);
             let storageWritable = false;
             try {
@@ -44,152 +131,273 @@ Bun.serve({
                     fs.unlinkSync(testFile);
                     storageWritable = true;
                 }
-            } catch (e) {}
+            } catch {
+                storageWritable = false;
+            }
 
-            return Response.json({
-                status: storageExists && storageWritable && SECRET_KEY ? 'ok' : 'error',
+            const healthy = storageExists && storageWritable && !!SECRET_KEY;
+            return jsonResponse({
+                status: healthy ? 'ok' : 'error',
+                service: 'bun-image-service',
+                mode: 's3-presigned-direct-upload',
                 timestamp: new Date().toISOString(),
                 config: {
                     port: PORT,
                     baseUrl: BASE_URL,
-                    apiKeyConfigured: !!SECRET_KEY
+                    secretConfigured: !!SECRET_KEY,
                 },
                 storage: {
                     path: STATIC_DIR,
                     exists: storageExists,
-                    writable: storageWritable
-                }
-            }, { status: (storageExists && storageWritable && SECRET_KEY) ? 200 : 500 });
+                    writable: storageWritable,
+                },
+            }, healthy ? 200 : 500);
         }
 
-        // 2. Admin Dashboard
-        if ((url.pathname === '/admin' || url.pathname === '/admin.html') && req.method === 'GET') {
-            if (!isAuthorized()) {
-                return new Response('<h1>Unauthorized</h1><p>Please provide a valid ?key=YOUR_SECRET in the URL.</p>', { 
-                    status: 401, 
-                    headers: { 'Content-Type': 'text/html' } 
-                });
-            }
-            const html = fs.readFileSync(path.join(import.meta.dir, 'admin.html'), 'utf8');
-            return new Response(html, { headers: { 'Content-Type': 'text/html' } });
-        }
-
-        // 2. Serve Static Images
+        // 3. Serve Static Images (Public)
         if (url.pathname.startsWith('/images/') && req.method === 'GET') {
-            const filename = url.pathname.replace('/images/', '');
+            const filename = path.basename(url.pathname);
             const filepath = path.join(STATIC_DIR, filename);
             const file = Bun.file(filepath);
+
             if (await file.exists()) {
-                return new Response(file);
+                const ext = path.extname(filename).toLowerCase();
+                const mimeType = ext === '.webp' ? 'image/webp' : ext === '.png' ? 'image/png' : 'application/octet-stream';
+
+                return new Response(file, {
+                    headers: corsHeaders({
+                        'Content-Type': mimeType,
+                        'Cache-Control': 'public, max-age=31536000, immutable',
+                    }),
+                });
             }
-            return new Response('Not Found', { status: 404 });
+            return jsonResponse({ error: 'Image not found' }, 404);
         }
 
-        // --- Protected Routes Below ---
-        if (!isAuthorized()) {
-            return Response.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        // 4. Generate Pre-signed Direct Upload URL (Server-to-Server / Protected by API Key)
+        if ((url.pathname === '/api/presign' || url.pathname === '/presigned-url') && req.method === 'POST') {
+            if (!isAuthorized()) {
+                return jsonResponse({ error: 'Unauthorized: Invalid or missing API key' }, 401);
+            }
 
-        // 3. Upload Image
-        if (url.pathname === '/upload' && req.method === 'POST') {
             try {
-                const formData = await req.formData();
-                const file = formData.get('file') as File;
+                const body = await req.json().catch(() => ({}));
+                const requestedFormat = (body.format || 'webp').toLowerCase() as AllowedFormat;
 
-                if (!file) {
-                    return Response.json({ error: 'No file uploaded' }, { status: 400 });
+                if (!ALLOWED_FORMATS.includes(requestedFormat)) {
+                    return jsonResponse({
+                        error: `Invalid format '${requestedFormat}'. Supported formats are: ${ALLOWED_FORMATS.join(', ')}`
+                    }, 400);
                 }
 
-                // Generate unique base filename
+                const expiresIn = Math.min(
+                    Math.max(Number(body.expiresIn) || DEFAULT_EXPIRATION_SECONDS, 30),
+                    3600 // Max 1 hour
+                );
+                const maxSizeBytes = Number(body.maxSizeBytes) || DEFAULT_MAX_SIZE_BYTES;
+                const expires = Math.floor(Date.now() / 1000) + expiresIn;
+
+                // Unique file key with target extension
                 const timestamp = Date.now();
-                const random = Math.round(Math.random() * 1e9);
-                const baseFilename = `img-${timestamp}-${random}`;
-                const webpFilename = `${baseFilename}.webp`;
-                const pngFilename = `${baseFilename}.png`;
+                const random = crypto.randomBytes(6).toString('hex');
+                const fileKey = `img-${timestamp}-${random}.${requestedFormat}`;
 
-                const webpPath = path.join(STATIC_DIR, webpFilename);
-                const pngPath = path.join(STATIC_DIR, pngFilename);
+                // Calculate HMAC signature
+                const signature = generateSignature({
+                    method: 'PUT',
+                    path: '/upload/direct',
+                    fileKey,
+                    format: requestedFormat,
+                    expires,
+                    maxSize: maxSizeBytes,
+                });
 
-                // Process image with Sharp
-                const arrayBuffer = await file.arrayBuffer();
-                const imageBuffer = Buffer.from(arrayBuffer);
+                // Construct direct upload URL
+                const queryParams = new URLSearchParams({
+                    fileKey,
+                    expires: expires.toString(),
+                    format: requestedFormat,
+                    maxSize: maxSizeBytes.toString(),
+                    signature,
+                });
 
-                // Generate WebP
-                await sharp(imageBuffer)
-                    .resize({ width: 1920, withoutEnlargement: true })
-                    .toFormat('webp', { quality: 80 })
-                    .toFile(webpPath);
+                const uploadUrl = `${BASE_URL}/upload/direct?${queryParams.toString()}`;
+                const publicUrl = `${BASE_URL}/images/${fileKey}`;
 
-                // Generate PNG
-                await sharp(imageBuffer)
-                    .resize({ width: 1920, withoutEnlargement: true })
-                    .toFormat('png')
-                    .toFile(pngPath);
-
-                console.log(`Successfully uploaded: ${webpFilename} and ${pngFilename}`);
-
-                return Response.json({
+                return jsonResponse({
                     success: true,
-                    url: `${BASE_URL}/images/${webpFilename}`, // Default URL (WebP)
-                    webp_url: `${BASE_URL}/images/${webpFilename}`,
-                    png_url: `${BASE_URL}/images/${pngFilename}`,
-                    details: {
-                        baseFilename,
-                        webp: {
-                            filename: webpFilename,
-                            mimetype: 'image/webp',
-                            size: fs.statSync(webpPath).size
-                        },
-                        png: {
-                            filename: pngFilename,
-                            mimetype: 'image/png',
-                            size: fs.statSync(pngPath).size
-                        }
+                    uploadUrl,
+                    method: 'PUT',
+                    fileKey,
+                    format: requestedFormat,
+                    publicUrl,
+                    expiresAt: expires,
+                    expiresInSeconds: expiresIn,
+                    maxSizeBytes,
+                    headersRequired: {
+                        'Content-Type': 'image/*'
                     }
                 });
             } catch (error) {
-                return Response.json({ error: (error as Error).message }, { status: 500 });
+                return jsonResponse({ error: (error as Error).message }, 500);
             }
         }
 
-        // 4. List Images
+        // 5. Direct Binary Image Upload (Public via S3-style Presigned Signature)
+        if (url.pathname === '/upload/direct' && req.method === 'PUT') {
+            try {
+                const fileKey = url.searchParams.get('fileKey');
+                const expiresStr = url.searchParams.get('expires');
+                const format = url.searchParams.get('format') as AllowedFormat;
+                const maxSizeStr = url.searchParams.get('maxSize');
+                const signature = url.searchParams.get('signature');
+
+                if (!fileKey || !expiresStr || !format || !maxSizeStr || !signature) {
+                    return jsonResponse({ error: 'Missing required presigned parameters' }, 400);
+                }
+
+                if (!ALLOWED_FORMATS.includes(format)) {
+                    return jsonResponse({ error: 'Unsupported format in presigned token' }, 400);
+                }
+
+                const expires = Number(expiresStr);
+                const maxSize = Number(maxSizeStr);
+                const now = Math.floor(Date.now() / 1000);
+
+                // Check Expiration
+                if (now > expires) {
+                    return jsonResponse({ error: 'Presigned upload URL has expired' }, 403);
+                }
+
+                // Check Replay (One-Time Use)
+                if (usedSignatures.has(signature)) {
+                    return jsonResponse({ error: 'Presigned upload URL has already been used' }, 409);
+                }
+
+                // Validate HMAC Signature
+                const expectedSignature = generateSignature({
+                    method: 'PUT',
+                    path: '/upload/direct',
+                    fileKey,
+                    format,
+                    expires,
+                    maxSize,
+                });
+
+                if (!verifySignature(expectedSignature, signature)) {
+                    return jsonResponse({ error: 'Invalid presigned signature or tampered parameters' }, 403);
+                }
+
+                // Check Content-Length header if provided
+                const contentLength = Number(req.headers.get('content-length') || 0);
+                if (contentLength > maxSize) {
+                    return jsonResponse({
+                        error: `File size exceeds allowed limit of ${maxSize} bytes`
+                    }, 413);
+                }
+
+                // Read binary body
+                const arrayBuffer = await req.arrayBuffer();
+                if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+                    return jsonResponse({ error: 'Empty file body received' }, 400);
+                }
+
+                if (arrayBuffer.byteLength > maxSize) {
+                    return jsonResponse({
+                        error: `Payload size (${arrayBuffer.byteLength} bytes) exceeds limit of ${maxSize} bytes`
+                    }, 413);
+                }
+
+                const inputBuffer = Buffer.from(arrayBuffer);
+
+                // Process image with Sharp (Validates genuine image bytes & sanitizes)
+                const safeFilename = path.basename(fileKey);
+                const outputPath = path.join(STATIC_DIR, safeFilename);
+
+                let sharpInstance = sharp(inputBuffer)
+                    .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true });
+
+                if (format === 'webp') {
+                    sharpInstance = sharpInstance.webp({ quality: 80 });
+                } else if (format === 'png') {
+                    sharpInstance = sharpInstance.png({ compressionLevel: 8 });
+                }
+
+                await sharpInstance.toFile(outputPath);
+
+                // Invalidate signature immediately (Prevent duplicate uploads)
+                usedSignatures.set(signature, expires);
+
+                const fileStats = fs.statSync(outputPath);
+                const publicUrl = `${BASE_URL}/images/${safeFilename}`;
+
+                console.log(`[Upload Success] ${safeFilename} (${format.toUpperCase()}, ${fileStats.size} bytes)`);
+
+                return jsonResponse({
+                    success: true,
+                    url: publicUrl,
+                    fileKey: safeFilename,
+                    format,
+                    size: fileStats.size,
+                    contentType: format === 'webp' ? 'image/webp' : 'image/png',
+                }, 200);
+
+            } catch (error) {
+                console.error('[Upload Error]', error);
+                const msg = (error as Error).message || 'Image processing failed';
+                return jsonResponse({
+                    error: msg.includes('Input buffer contains unsupported image format')
+                        ? 'Invalid image file: File is corrupted or not a supported image format'
+                        : msg
+                }, 400);
+            }
+        }
+
+        // --- Master API Key Protected Management Endpoints ---
+        if (!isAuthorized()) {
+            return jsonResponse({ error: 'Unauthorized' }, 401);
+        }
+
+        // 6. List All Images (Protected)
         if (url.pathname === '/list' && req.method === 'GET') {
             try {
-                const files = fs.readdirSync(STATIC_DIR);
+                const files = fs.readdirSync(STATIC_DIR).filter(f => !f.startsWith('.'));
                 const images = files.map(filename => {
                     const stats = fs.statSync(path.join(STATIC_DIR, filename));
+                    const ext = path.extname(filename).replace('.', '').toLowerCase();
                     return {
                         filename,
                         url: `${BASE_URL}/images/${filename}`,
+                        format: ext,
                         size: stats.size,
                         mtime: stats.mtime
                     };
                 });
                 images.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-                return Response.json(images);
+                return jsonResponse(images);
             } catch (error) {
-                return Response.json({ error: (error as Error).message }, { status: 500 });
+                return jsonResponse({ error: (error as Error).message }, 500);
             }
         }
 
-        // 5. Delete Image
+        // 7. Delete Image (Protected)
         if (url.pathname.startsWith('/images/') && req.method === 'DELETE') {
             try {
-                const filename = url.pathname.replace('/images/', '');
+                const filename = path.basename(url.pathname);
                 const filepath = path.join(STATIC_DIR, filename);
 
                 if (!fs.existsSync(filepath)) {
-                    return Response.json({ error: 'File not found' }, { status: 404 });
+                    return jsonResponse({ error: 'File not found' }, 404);
                 }
 
                 fs.unlinkSync(filepath);
-                console.log(`Deleted: ${filename}`);
-                return Response.json({ success: true, message: `Deleted ${filename}` });
+                console.log(`[Deleted] ${filename}`);
+                return jsonResponse({ success: true, message: `Deleted ${filename}` });
             } catch (error) {
-                return Response.json({ error: (error as Error).message }, { status: 500 });
+                return jsonResponse({ error: (error as Error).message }, 500);
             }
         }
 
-        return new Response('Not Found', { status: 404 });
+        return jsonResponse({ error: 'Not Found' }, 404);
     },
 });
