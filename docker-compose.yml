@@ -1,7 +1,6 @@
 services:
   image-server:
-    build: .
-    image: ghcr.io/amber-bisht/imageservcies-bun:latest
+    image: ghcr.io/amber-bisht/images-bun:latest
     container_name: image-server
     restart: always
     ports:
